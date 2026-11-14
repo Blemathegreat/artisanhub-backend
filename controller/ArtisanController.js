@@ -43,7 +43,11 @@ async function updateBusinessInfo(req, res) {
     // Geocode the full address — treated as "best effort", NOT required.
     // If it fails for any reason (vague address, Nominatim down, etc.),
     // we still save everything else normally, just without coordinates.
-    const fullAddress = `${address}, ${area || ''}, ${city}, ${state}, Nigeria`
+    // Build the address from the parts that exist (no empty ", ," gaps when area is blank)
+    const fullAddress = [address, area, city, state, "Nigeria"]
+      .map((part) => (part || "").trim())
+      .filter(Boolean)
+      .join(", ")
 let latitude = null
 let longitude = null
 let locationPrecision = null  
@@ -70,16 +74,22 @@ try {
   console.log("Geocoding failed (non-blocking):", geoError)
 }
 
+    // COALESCE(?, latitude) = "use the new coordinates if we found some,
+    // otherwise KEEP the old ones". Without it, a short Nominatim outage
+    // would erase an artisan's good pin from the map.
     await pool.query(
       `UPDATE artisans
        SET business_name = ?, category_id = ?, state = ?, city = ?, area = ?,
            address = ?, home_service = ?, experience_years = ?, description = ?,
-           latitude = ?, longitude = ?, onboarding_stage = ?
+           latitude = COALESCE(?, latitude),
+           longitude = COALESCE(?, longitude),
+           location_precision = COALESCE(?, location_precision),
+           onboarding_stage = ?
        WHERE user_id = ?`,
       [
         businessName, categoryId, state, city, area,
         address, homeServiceValue, experience, description,
-        latitude, longitude,
+        latitude, longitude, locationPrecision,
         "business_info_done",
         userId,
       ]
